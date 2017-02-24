@@ -1,4 +1,3 @@
-# For command_line
 from pprint import pprint, pformat
 import inspect
 import argparse
