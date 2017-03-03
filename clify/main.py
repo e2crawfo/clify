@@ -1,10 +1,11 @@
-from pprint import pprint, pformat
+from pprint import pformat
 import inspect
 import argparse
 from future.utils import raise_from
+import warnings
 
 
-def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
+def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_kwargs=False):
     """ Turn a function into a script that accepts arguments from the command line.
 
     Inspects the signature of the modified function to get default values. Arguments
@@ -16,7 +17,7 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
     For positional arguments, arguments passed programmatically come *before* arguments
     passed from the command line.
 
-    Supports functions with * and **.
+    Supports functions with *, and supports functions with ** if ``collect_kwargs`` is True.
 
     Function arguments may not be named ``__positional``; this is a reserved name used
     used to capture positional arguments from the command line.
@@ -57,6 +58,16 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
     cl_args: str
         String of command line arguments to be used in place of arguments from the
         actual command line, useful for testing.
+    allow_abbrev: bool
+        Whether to allow user to specify arguments using unambiguous abbreviations of
+        the actual argument name. Defaults to True, can only be turned off in python 3.5
+        or later.
+    collect_kwargs: bool
+        Whether command line arguments that do not correspond to one of the wrapped function's
+        parameter names will be collected into a list and turned into a dictionary
+        that is then passed to the wrapped function using ** notation. Defaults to True.
+        Can be useful to turn this off if, for instance, we want to leave some of the arguments
+        for argument parsers that may come later.
 
     """
     EMPTY = object()
@@ -71,16 +82,25 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
             (pn, (EMPTY if p.default is Parameter.empty else p.default), p.kind is Parameter.KEYWORD_ONLY)
             for pn, p in signature.parameters.items()
             if p.kind in kinds]
-    except AttributeError:
+    except ImportError:
         # python 2
         args, varargs, keywords, _defaults = inspect.getargspec(func)
-        _defaults = [EMPTY] * (len(args) - len(_defaults)) + _defaults
+        _defaults = [EMPTY] * (len(args) - len(_defaults)) + list(_defaults)
         defaults = zip(args, _defaults, [False] * len(args))
 
     # Using ``defaults``, create a command line argument parser that automatically
     # casts provided arguments to the same type as the default argument, unless default is None.
-    parser = argparse.ArgumentParser(
-        "Automatically generated argument parser for function {}.".format(func.__name__))
+    try:
+        parser = argparse.ArgumentParser(
+            "Automatically generated argument parser for function {}.".format(func.__name__), allow_abbrev=allow_abbrev)
+    except TypeError:
+        if not allow_abbrev:
+            warnings.warn("clify argument ``allow_abbrev`` set to False, but abbrevation functionality "
+                          "cannot be turned off in versions of python earlier than 3.5.")
+
+        parser = argparse.ArgumentParser(
+            "Automatically generated argument parser for function {}.".format(func.__name__))
+
     parser.add_argument('__positional', nargs='*')
 
     NOT_PROVIDED = object()
@@ -96,7 +116,8 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
             help=type(default).__name__)
 
     def g(*pargs, **kwargs):
-        cl_arg_vals, extra_cl = parser.parse_known_args(cl_args.split())
+        cl_arg_vals, extra_cl = parser.parse_known_args(
+            cl_args.split() if cl_args is not None else None)
 
         # Match each cl-provided positional argument with an argument name,
         # perform a cast if the name has an associated default value
@@ -122,29 +143,7 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
                      for pn, value in cl_arg_vals.__dict__.items()
                      if value is not NOT_PROVIDED and pn is not '__positional'}
 
-        # Parse extra command line-provided kwargs (corresponds to **kwargs) in the wrapped function.
-        # Supported formats are ``--key=value`` and ``--key value``.
-        extra_kwargs = {}
-        _key = None
-        for s in extra_cl:
-            if _key is None:
-                if not s.startswith('--'):
-                    raise RuntimeError("Expected string beginning with --, got {}.".format(s))
-                if '=' in s:
-                    idx = s.index('=')
-                    _key = s[2:idx]
-                    _value = s[idx + 1:]
-                    extra_kwargs[_key] = _value
-                    _key = None
-                else:
-                    _key = s[2:]
-            else:
-                if s.startswith('--'):
-                    raise RuntimeError("Expected value for option {}, got {}.".format(_key, s))
-                extra_kwargs[_key] = s
-                _key = None
-        if _key is not None:
-            raise RuntimeError("Expected value for option {}, none provided.".format(_key))
+        extra_kwargs = parse_extra_kwargs(extra_cl) if collect_kwargs else {}
 
         overlap = set(kwargs) & set(cl_kwargs) & set(extra_kwargs)
         if overlap:
@@ -161,20 +160,28 @@ def command_line(func, verbose=False, cl_args=None, allow_abrev=True):
     return g
 
 
-def f(a, x=1):
-    pprint("Locals:")
-    pprint(locals())
-
-
-def f2(y=20, *, x=1):
-    pprint("Locals:")
-    pprint(locals())
-
-
-def f3(a, b, c, x=20, *p, y=1, z=0, **kwargs):
-    pprint("Locals:")
-    pprint(locals())
-
-
-if __name__ == "__main__":
-    command_line(f3, verbose=True, cl_args='b c 0 p1 p2 --y=1 --w 10 --k=hellothere')(['a'], z=['z'])
+def parse_extra_kwargs(extra_cl):
+    # Parse extra command line-provided kwargs (corresponds to **kwargs) in the wrapped function.
+    # Supported formats are ``--key=value`` and ``--key value``.
+    extra_kwargs = {}
+    _key = None
+    for s in extra_cl:
+        if _key is None:
+            if not s.startswith('--'):
+                raise RuntimeError("Expected string beginning with --, got {}.".format(s))
+            if '=' in s:
+                idx = s.index('=')
+                _key = s[2:idx]
+                _value = s[idx + 1:]
+                extra_kwargs[_key] = _value
+                _key = None
+            else:
+                _key = s[2:]
+        else:
+            if s.startswith('--'):
+                raise RuntimeError("Expected value for option {}, got {}.".format(_key, s))
+            extra_kwargs[_key] = s
+            _key = None
+    if _key is not None:
+        raise RuntimeError("Expected value for option {}, none provided.".format(_key))
+    return extra_kwargs
