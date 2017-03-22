@@ -8,4 +8,5 @@ setup(name='clify',
       author_email='eric.crawford@mail.mcgill.ca',
       license='MIT',
       packages=['clify'],
+      install_requires=["future"],
       zip_safe=False)

@@ -1,11 +1,11 @@
-from pprint import pformat
 import inspect
 import argparse
-from future.utils import raise_from
 import warnings
+from future.utils import raise_from
+from pprint import pformat
 
 
-def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_kwargs=False):
+def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_kwargs=False, message=None):
     """ Turn a function into a script that accepts arguments from the command line.
 
     Inspects the signature of the modified function to get default values. Arguments
@@ -51,9 +51,9 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
     Parameters
     ----------
     func: function
-        The function to modify.
+        The function to wrap.
     verbose: bool
-        If true, before calling the function, prints the arguments that
+        If true, before calling the wrapped function, prints the arguments that
         it will be called with.
     cl_args: str
         String of command line arguments to be used in place of arguments from the
@@ -68,6 +68,8 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
         that is then passed to the wrapped function using ** notation. Defaults to True.
         Can be useful to turn this off if, for instance, we want to leave some of the arguments
         for argument parsers that may come later.
+    message: str (optional)
+        A message to print when the user requests help.
 
     """
     EMPTY = object()
@@ -86,20 +88,18 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
         # python 2
         args, varargs, keywords, _defaults = inspect.getargspec(func)
         _defaults = [EMPTY] * (len(args) - len(_defaults)) + list(_defaults)
-        defaults = zip(args, _defaults, [False] * len(args))
+        defaults = zip(args, _defaults, [False] * len(args))  # No kw-only args in python 2
 
     # Using ``defaults``, create a command line argument parser that automatically
     # casts provided arguments to the same type as the default argument, unless default is None.
+    message = message or "Automatically generated argument parser for function {}.".format(func.__name__)
     try:
-        parser = argparse.ArgumentParser(
-            "Automatically generated argument parser for function {}.".format(func.__name__), allow_abbrev=allow_abbrev)
+        parser = argparse.ArgumentParser(message, allow_abbrev=allow_abbrev)
     except TypeError:
         if not allow_abbrev:
             warnings.warn("clify argument ``allow_abbrev`` set to False, but abbrevation functionality "
                           "cannot be turned off in versions of python earlier than 3.5.")
-
-        parser = argparse.ArgumentParser(
-            "Automatically generated argument parser for function {}.".format(func.__name__))
+        parser = argparse.ArgumentParser(message)
 
     parser.add_argument('__positional', nargs='*')
 
@@ -143,7 +143,7 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
                      for pn, value in cl_arg_vals.__dict__.items()
                      if value is not NOT_PROVIDED and pn is not '__positional'}
 
-        extra_kwargs = parse_extra_kwargs(extra_cl) if collect_kwargs else {}
+        extra_kwargs = _parse_extra_kwargs(extra_cl) if collect_kwargs else {}
 
         overlap = set(kwargs) & set(cl_kwargs) & set(extra_kwargs)
         if overlap:
@@ -160,9 +160,19 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
     return g
 
 
-def parse_extra_kwargs(extra_cl):
-    # Parse extra command line-provided kwargs (corresponds to **kwargs) in the wrapped function.
-    # Supported formats are ``--key=value`` and ``--key value``.
+def _parse_extra_kwargs(extra_cl):
+    """ Parse extra command line-provided kwargs in the wrapped function.
+
+    Such arguments are passed to the wrapped function via **kwargs
+    if ``collect_kwargs`` is True. Supported formats are ``--key=value``
+    and ``--key value``.
+
+    Parameters
+    ----------
+    extra_cl: list of str
+        Extra command line arguments, as given by second return value from ``parse_known_args``.
+
+    """
     extra_kwargs = {}
     _key = None
     for s in extra_cl:
@@ -182,6 +192,8 @@ def parse_extra_kwargs(extra_cl):
                 raise RuntimeError("Expected value for option {}, got {}.".format(_key, s))
             extra_kwargs[_key] = s
             _key = None
+
     if _key is not None:
         raise RuntimeError("Expected value for option {}, none provided.".format(_key))
+
     return extra_kwargs
