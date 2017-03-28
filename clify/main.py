@@ -87,8 +87,9 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
     except ImportError:
         # python 2
         args, varargs, keywords, _defaults = inspect.getargspec(func)
-        _defaults = [EMPTY] * (len(args) - len(_defaults)) + list(_defaults)
-        defaults = zip(args, _defaults, [False] * len(args))  # No kw-only args in python 2
+        _defaults = list(_defaults or [])
+        _defaults = [EMPTY] * (len(args) - len(_defaults)) + _defaults
+        defaults = zip(args, _defaults, [False] * len(args))
 
     # Using ``defaults``, create a command line argument parser that automatically
     # casts provided arguments to the same type as the default argument, unless default is None.
