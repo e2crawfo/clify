@@ -5,7 +5,9 @@ from future.utils import raise_from
 from pprint import pformat
 
 
-def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_kwargs=False, message=None):
+def command_line(
+        func, verbose=False, cl_args=None, allow_abbrev=True,
+        collect_kwargs=False, parser=None, message=None):
     """ Turn a function into a script that accepts arguments from the command line.
 
     Inspects the signature of the modified function to get default values. Arguments
@@ -61,15 +63,17 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
     allow_abbrev: bool
         Whether to allow user to specify arguments using unambiguous abbreviations of
         the actual argument name. Defaults to True, can only be turned off in python 3.5
-        or later.
+        or later. Ignored if ``parser`` is supplied.
     collect_kwargs: bool
         Whether command line arguments that do not correspond to one of the wrapped function's
         parameter names will be collected into a list and turned into a dictionary
         that is then passed to the wrapped function using ** notation. Defaults to True.
         Can be useful to turn this off if, for instance, we want to leave some of the arguments
         for argument parsers that may come later.
+    parser: ArgumentParser instance (optional)
+        Add arguments to an existing parser rather than creating a new one.
     message: str (optional)
-        A message to print when the user requests help.
+        A message to print when the user requests help. Ignored if ``parser`` is supplied.
 
     """
     EMPTY = object()
@@ -93,14 +97,17 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
 
     # Using ``defaults``, create a command line argument parser that automatically
     # casts provided arguments to the same type as the default argument, unless default is None.
-    message = message or "Automatically generated argument parser for function {}.".format(func.__name__)
-    try:
-        parser = argparse.ArgumentParser(message, allow_abbrev=allow_abbrev)
-    except TypeError:
-        if not allow_abbrev:
-            warnings.warn("clify argument ``allow_abbrev`` set to False, but abbrevation functionality "
-                          "cannot be turned off in versions of python earlier than 3.5.")
-        parser = argparse.ArgumentParser(message)
+    if parser is None:
+        message = message or "Automatically generated argument parser for function {}.".format(func.__name__)
+        try:
+            parser = argparse.ArgumentParser(message, allow_abbrev=allow_abbrev)
+        except TypeError:
+            if not allow_abbrev:
+                warnings.warn("clify argument ``allow_abbrev`` set to False, but abbrevation functionality "
+                              "cannot be turned off in versions of python earlier than 3.5.")
+            parser = argparse.ArgumentParser(message)
+    else:
+        assert isinstance(parser, argparse.ArgumentParser)
 
     parser.add_argument('__positional', nargs='*')
 
@@ -117,6 +124,10 @@ def command_line(func, verbose=False, cl_args=None, allow_abbrev=True, collect_k
             help=type(default).__name__)
 
     def g(*pargs, **kwargs):
+        """ When called, uses a specially constructed ArgumentParser to parse arguments
+            from the command line and pass them to the wrapped function.
+
+        """
         cl_arg_vals, extra_cl = parser.parse_known_args(
             cl_args.split() if cl_args is not None else None)
 
