@@ -3,7 +3,7 @@ import clify
 from clify.main import list_attrs
 
 
-def f(a, b, c, x=20, *p, w='1', y=1, z=0, **kwargs):
+def f(a, b, c, x=20, *p, w='1', y=1, z=0, m=True, n=False, **kwargs):
     pprint("Locals:")
     pprint(locals())
     return locals()
@@ -11,7 +11,7 @@ def f(a, b, c, x=20, *p, w='1', y=1, z=0, **kwargs):
 
 def test_wrap_function():
     wrapped = clify.wrap_function(f, verbose=True, collect_kwargs=True,
-                                  cl_args='b c 0 p1 p2 --w=1 --y=1 --k=hellothere --l 0.01')
+                                  cl_args='b c 0 p1 p2 --w=1 --y=1 --k=hellothere --l 0.01 --m 0 --n 1')
     f_locals = wrapped(['a'], z=['z'])
     assert tuple(f_locals['a']) == ('a',)
     assert f_locals['b'] == 'b'
@@ -23,6 +23,9 @@ def test_wrap_function():
     assert f_locals['kwargs']['k'] == 'hellothere'
     assert f_locals['kwargs']['l'] == '0.01'
 
+    assert f_locals['m'] is False
+    assert f_locals['n'] is True
+
 
 class A(object):
     u = '10'
@@ -31,6 +34,9 @@ class A(object):
     x = 0
     y = 'temp'
     z = 2
+
+    p = True
+    q = False
 
     def __str__(self):
         s = ["\n< {}".format(self.__class__.__name__)]
@@ -46,7 +52,7 @@ class A(object):
 def test_wrap_object():
     a = A()
     a.c = 20
-    wrapped = clify.wrap_object(a, cl_args='--x=2 --y 3 --a 100 --c 21', verbose=True, collect_kwargs=True)
+    wrapped = clify.wrap_object(a, cl_args='--x=2 --y 3 --a 100 --c 21 --p False --q True', verbose=True, collect_kwargs=True)
     result = wrapped.parse(v=10, w=10, b=100)
     pprint(result)
 
@@ -71,6 +77,9 @@ def test_wrap_object():
     assert result.a == '100'
     assert result.b == 100
     assert result.c == 21
+
+    assert result.p is False
+    assert result.q is True
 
 
 if __name__ == "__main__":

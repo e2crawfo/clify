@@ -11,6 +11,13 @@ NOT_PROVIDED = object()
 EMPTY = object()
 
 
+class _bool(object):
+    def __new__(cls, val):
+        if val in ("0", "False", "F", "false", "f"):
+            return False
+        return bool(val)
+
+
 class CommandLineFunction(object):
     """ Turn a function into a script that accepts arguments from the command line.
 
@@ -135,6 +142,7 @@ class CommandLineFunction(object):
         for param_name, default, _ in defaults:
             option = '--' + param_name.replace('_', '-')
             default_type = None if (default is EMPTY or default is None) else type(default)
+            default_type = _bool if default_type is bool else default_type
 
             parser.add_argument(
                 option,
@@ -234,6 +242,7 @@ class CommandLineObject(object):
             default = getattr(obj, attr)
             option = '--' + attr.replace('_', '-')
             default_type = None if (default is EMPTY or default is None) else type(default)
+            default_type = _bool if default_type is bool else default_type
 
             parser.add_argument(
                 option,
