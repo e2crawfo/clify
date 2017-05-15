@@ -1,1 +1,1 @@
-from .main import command_line
+from .main import command_line, wrap, CommandLineFunction
