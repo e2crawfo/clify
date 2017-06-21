@@ -202,6 +202,17 @@ class CommandLineFunction(object):
         return self.wrapped(*pargs, **kwargs)
 
 
+class DictWrapper(object):
+    def __init__(self, dct):
+        self.__dict__ = dct
+
+    def __str__(self):
+        return "DictWrapper({})".format(pformat(self.__dict__))
+
+    def __repr__(self):
+        return str(self)
+
+
 class CommandLineObject(object):
     """ Create an argument parser from an object.
 
@@ -212,7 +223,8 @@ class CommandLineObject(object):
             self, obj, verbose=False, cl_args=None, allow_abbrev=True,
             collect_kwargs=False, parser=None, message=None):
 
-        self.obj = obj
+        self.obj = DictWrapper(obj) if isinstance(obj, dict) else obj
+
         self.verbose = verbose
         self.cl_args = cl_args
         self.allow_abbrev = allow_abbrev
@@ -222,10 +234,10 @@ class CommandLineObject(object):
 
         build_parser_kwargs = locals().copy()
         del build_parser_kwargs['self']
-        self.parser = self._build_arg_parser(obj, allow_abbrev, parser, message)
+        self.parser = self._build_arg_parser(self.obj, allow_abbrev, parser, message)
 
-    def _build_arg_parser(self, obj, allow_abbrev, parser, message):
-
+    @staticmethod
+    def _build_arg_parser(obj, allow_abbrev, parser, message):
         if parser is None:
             message = message or "Automatically generated argument parser for object {}.".format(obj)
             try:
@@ -278,6 +290,9 @@ class CommandLineObject(object):
 
         if self.verbose:
             print("Built object from command line args:\n{}".format(obj))
+
+        if isinstance(obj, DictWrapper):
+            obj = type(self.obj.__dict__)(obj.__dict__)
 
         return obj
 
