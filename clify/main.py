@@ -204,13 +204,22 @@ class CommandLineFunction(object):
 
 class DictWrapper(object):
     def __init__(self, dct):
-        self.__dict__ = dct
+        self.dct = dct
 
     def __str__(self):
-        return "DictWrapper({})".format(pformat(self.__dict__))
+        return "DictWrapper({})".format(pformat(self.dct))
 
     def __repr__(self):
         return str(self)
+
+    def __dir__(self):
+        return self.dct.keys()
+
+    def __getattr__(self, key):
+        try:
+            return self.dct[key]
+        except KeyError:
+            raise AttributeError(str(key))
 
 
 class CommandLineObject(object):
@@ -265,6 +274,7 @@ class CommandLineObject(object):
         return parser
 
     def parse(self, **kwargs):
+        """ Returns a dictionary containing entries only for attributes that were given non-default values. """
         cl_arg_vals, extra_cl = self.parser.parse_known_args(
             self.cl_args.split() if self.cl_args is not None else None)
         cl_kwargs = {pn: value
@@ -279,22 +289,10 @@ class CommandLineObject(object):
         kwargs.update(cl_kwargs)
         kwargs.update(extra_kwargs)
 
-        obj = copy.copy(self.obj)
-
-        for attr, value in kwargs.items():
-            if hasattr(obj, attr):
-                current_value = getattr(obj, attr)
-                if isinstance(current_value, types.MethodType):
-                    raise Exception("Attempting to overwrite method {} of object {}.".format(current_value, obj))
-            setattr(obj, attr, value)
-
         if self.verbose:
-            print("Built object from command line args:\n{}".format(obj))
+            print("Built dict from command line args:\n{}".format(kwargs))
 
-        if isinstance(obj, DictWrapper):
-            obj = type(self.obj.__dict__)(obj.__dict__)
-
-        return obj
+        return kwargs
 
 
 def list_attrs(obj):
