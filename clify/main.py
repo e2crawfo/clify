@@ -1,7 +1,6 @@
 import inspect
 import argparse
 import warnings
-import copy
 import types
 from future.utils import raise_from
 from pprint import pformat
@@ -89,7 +88,7 @@ class CommandLineFunction(object):
 
     """
     def __init__(
-            self, wrapped, verbose=False, cl_args=None, allow_abbrev=True,
+            self, wrapped, verbose=False, cl_args=None, allow_abbrev=False,
             collect_kwargs=False, parser=None, message=None):
 
         self.wrapped = wrapped
@@ -229,7 +228,7 @@ class CommandLineObject(object):
 
     """
     def __init__(
-            self, obj, verbose=False, cl_args=None, allow_abbrev=True,
+            self, obj, verbose=False, cl_args=None, allow_abbrev=False,
             collect_kwargs=False, parser=None, message=None):
 
         self.obj = DictWrapper(obj) if isinstance(obj, dict) else obj
@@ -261,12 +260,18 @@ class CommandLineObject(object):
 
         for attr in list_attrs(obj):
             default = getattr(obj, attr)
-            option = '--' + attr.replace('_', '-')
+
+            if '_' in attr:
+                option_strings = [attr, attr.replace('_', '-')]
+            else:
+                option_strings = [attr]
+            option_strings = ['--' + os for os in option_strings]
+
             default_type = None if (default is EMPTY or default is None) else type(default)
             default_type = _bool if default_type is bool else default_type
 
             parser.add_argument(
-                option,
+                *option_strings,
                 type=default_type,
                 default=NOT_PROVIDED,
                 help=type(default).__name__)
@@ -342,7 +347,7 @@ def _parse_extra_kwargs(extra_cl):
 
 
 def wrap_function(
-        wrapped, verbose=False, cl_args=None, allow_abbrev=True,
+        wrapped, verbose=False, cl_args=None, allow_abbrev=False,
         collect_kwargs=False, parser=None, message=None):
     return CommandLineFunction(**locals().copy())
 
@@ -351,7 +356,7 @@ wrap_function.__doc__ = CommandLineFunction.__doc__
 
 
 def wrap_object(
-        obj, verbose=False, cl_args=None, allow_abbrev=True,
+        obj, verbose=False, cl_args=None, allow_abbrev=False,
         collect_kwargs=False, parser=None, message=None):
     return CommandLineObject(**locals().copy())
 
