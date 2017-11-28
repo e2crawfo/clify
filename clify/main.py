@@ -152,7 +152,7 @@ class CommandLineFunction(object):
         return defaults, parser
 
     def __call__(self, *pargs, **kwargs):
-        """ When uses a specially constructed ArgumentParser to parse arguments
+        """ Uses a specially constructed ArgumentParser to parse arguments
             from the command line and pass them to the wrapped function.
 
         """
