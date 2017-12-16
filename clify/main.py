@@ -2,7 +2,6 @@ import inspect
 import argparse
 import warnings
 import types
-from future.utils import raise_from
 from pprint import pformat
 
 
@@ -31,9 +30,6 @@ class CommandLineFunction(object):
 
     Supports functions with an * in their signature, and functions with an ** in their
     signature if ``collect_kwargs`` is True.
-
-    Function arguments may not be named ``_positional``; this is a reserved name used
-    used to capture positional arguments from the command line.
 
     Example
     -------
@@ -136,8 +132,6 @@ class CommandLineFunction(object):
         else:
             assert isinstance(parser, argparse.ArgumentParser)
 
-        parser.add_argument('_positional', nargs='*')
-
         for param_name, default, _ in defaults:
             option = '--' + param_name.replace('_', '-')
             default_type = None if (default is EMPTY or default is None) else type(default)
@@ -161,29 +155,10 @@ class CommandLineFunction(object):
         return self.call_after_parse(cl_arg_vals, *pargs, extra_cl=extra_cl, **kwargs)
 
     def call_after_parse(self, cl_arg_vals, *pargs, extra_cl=None, **kwargs):
-        # Match each cl-provided positional argument with an argument name,
-        # perform a cast if the name has an associated default value
-        cl_pargs = cl_arg_vals._positional
-
-        for i in range(len(cl_pargs)):
-            param_name, default, kw_only = self.defaults[i + len(pargs)]
-
-            if not kw_only and (default not in (None, EMPTY)):
-                try:
-                    cl_pargs[i] = type(default)(cl_pargs[i])
-                except Exception as e:
-                    new_e = TypeError(
-                        "Exception raised while trying to convert object "
-                        "{} to type {} for param with name {}.".format(
-                            repr(cl_pargs[i]), repr(type(default).__name__), repr(param_name)))
-                    raise_from(new_e, e)
-
-        pargs = list(pargs) + list(cl_pargs)
-
         # Constuct a dictionary of command line-provided key word args.
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
-                     if value is not NOT_PROVIDED and pn is not '_positional'}
+                     if value is not NOT_PROVIDED}
 
         extra_kwargs = _parse_extra_kwargs(extra_cl) if self.collect_kwargs else {}
 
