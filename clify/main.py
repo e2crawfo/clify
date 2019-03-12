@@ -5,8 +5,24 @@ import types
 from pprint import pformat
 
 
-NOT_PROVIDED = object()
-EMPTY = object()
+class _NOT_PROVIDED:
+    def __str__(self):
+        return "NotProvided"
+
+    def __repr__(self):
+        return str(self)
+
+
+class _EMPTY:
+    def __str__(self):
+        return "Empty"
+
+    def __repr__(self):
+        return str(self)
+
+
+NOT_PROVIDED = _NOT_PROVIDED()
+EMPTY = _EMPTY()
 
 
 class _bool(object):
@@ -74,9 +90,13 @@ class CommandLineFunction(object):
     collect_kwargs: bool
         Whether command line arguments that do not correspond to one of the wrapped function's
         parameter names will be collected into a list and turned into a dictionary
-        that is then passed to the wrapped function using ** notation. Defaults to True.
+        that is then passed to the wrapped function using ** notation.
         Can be useful to turn this off if, for instance, we want to leave some of the arguments
         for argument parsers that may come later.
+    strict: bool
+        If True, raise a ValueError if kwargs are provided whose keys are not function
+        argument names. This can be useful for protecting against spelling mistakes when providing
+        arguments, but only makes sense when using a single parser.
     parser: ArgumentParser instance (optional)
         Add arguments to an existing parser rather than creating a new one.
     message: str (optional)
@@ -85,13 +105,15 @@ class CommandLineFunction(object):
     """
     def __init__(
             self, wrapped, verbose=False, cl_args=None, allow_abbrev=False,
-            collect_kwargs=False, parser=None, message=None):
+            collect_kwargs=False, strict=False, parser=None, message=None):
 
         self.wrapped = wrapped
         self.verbose = verbose
         self.cl_args = cl_args
         self.allow_abbrev = allow_abbrev
         self.collect_kwargs = collect_kwargs
+        self.strict = strict
+        assert not (collect_kwargs and strict)
         self.parser = parser
         self.message = message
 
@@ -121,7 +143,9 @@ class CommandLineFunction(object):
         # Using ``defaults``, create a command line argument parser that automatically
         # casts provided arguments to the same type as the default argument, unless default is None.
         if parser is None:
-            message = message or "Automatically generated argument parser for wrapped function {}.".format(wrapped.__name__)
+            if not message:
+                message = ("Automatically generated argument parser for "
+                           "wrapped function {}.".format(wrapped.__name__))
             try:
                 parser = argparse.ArgumentParser(message, allow_abbrev=allow_abbrev)
             except TypeError:
@@ -152,15 +176,21 @@ class CommandLineFunction(object):
         """
         cl_arg_vals, extra_cl = self.parser.parse_known_args(
             self.cl_args.split() if self.cl_args is not None else None)
+
         return self.call_after_parse(cl_arg_vals, *pargs, extra_cl=extra_cl, **kwargs)
 
     def call_after_parse(self, cl_arg_vals, *pargs, extra_cl=None, **kwargs):
-        # Constuct a dictionary of command line-provided key word args.
+        extra_kwargs = _parse_extra_kwargs(extra_cl)
+        if self.strict and extra_kwargs:
+            raise ValueError(
+                "\"strict\" kwarg parsing is turned on, but received "
+                "unrecognized kwargs:\n{}".format(pformat(extra_kwargs)))
+        if not self.collect_kwargs:
+            extra_kwargs = {}
+
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
                      if value is not NOT_PROVIDED}
-
-        extra_kwargs = _parse_extra_kwargs(extra_cl) if self.collect_kwargs else {}
 
         overlap = set(kwargs) & set(cl_kwargs) & set(extra_kwargs)
         if overlap:
@@ -204,7 +234,7 @@ class CommandLineObject(object):
     """
     def __init__(
             self, obj, verbose=False, cl_args=None, allow_abbrev=False,
-            collect_kwargs=False, parser=None, message=None):
+            collect_kwargs=False, strict=False, parser=None, message=None):
 
         self.obj = DictWrapper(obj) if isinstance(obj, dict) else obj
 
@@ -212,6 +242,8 @@ class CommandLineObject(object):
         self.cl_args = cl_args
         self.allow_abbrev = allow_abbrev
         self.collect_kwargs = collect_kwargs
+        self.strict = strict
+        assert not (collect_kwargs and strict)
         self.parser = parser
         self.message = message
 
@@ -257,10 +289,18 @@ class CommandLineObject(object):
         """ Returns a dictionary containing entries only for attributes that were given non-default values. """
         cl_arg_vals, extra_cl = self.parser.parse_known_args(
             self.cl_args.split() if self.cl_args is not None else None)
+
+        extra_kwargs = _parse_extra_kwargs(extra_cl)
+        if self.strict and extra_kwargs:
+            raise ValueError(
+                "\"strict\" kwarg parsing is turned on, but received "
+                "unrecognized kwargs:\n{}".format(pformat(extra_kwargs)))
+        if not self.collect_kwargs:
+            extra_kwargs = {}
+
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
                      if value is not NOT_PROVIDED}
-        extra_kwargs = _parse_extra_kwargs(extra_cl) if self.collect_kwargs else {}
 
         overlap = set(kwargs) & set(cl_kwargs) & set(extra_kwargs)
         if overlap:
@@ -278,8 +318,8 @@ class CommandLineObject(object):
 def list_attrs(obj):
     return (
         attr for attr in dir(obj)
-        if (not attr.startswith('_') and
-            not isinstance(getattr(obj, attr), types.MethodType)))
+        if (not attr.startswith('_')
+            and not isinstance(getattr(obj, attr), types.MethodType)))
 
 
 def _parse_extra_kwargs(extra_cl):
@@ -287,7 +327,7 @@ def _parse_extra_kwargs(extra_cl):
 
     Such arguments are passed to the wrapped function via **kwargs
     if ``collect_kwargs`` is True. Supported formats are ``--key=value``
-    and ``--key value``.
+    and ``--key value``. Positional arguments are ignored.
 
     Parameters
     ----------
@@ -299,16 +339,19 @@ def _parse_extra_kwargs(extra_cl):
     _key = None
     for s in extra_cl:
         if _key is None:
-            if not s.startswith('--'):
-                raise RuntimeError("Expected string beginning with --, got {}.".format(s))
-            if '=' in s:
-                idx = s.index('=')
-                _key = s[2:idx]
-                _value = s[idx + 1:]
-                extra_kwargs[_key] = _value
-                _key = None
+            if s.startswith('--'):
+                if '=' in s:
+                    # --key=value
+                    idx = s.index('=')
+                    _key = s[2:idx]
+                    _value = s[idx + 1:]
+                    extra_kwargs[_key] = _value
+                    _key = None
+                else:
+                    _key = s[2:]
             else:
-                _key = s[2:]
+                # positional
+                pass
         else:
             if s.startswith('--'):
                 raise RuntimeError("Expected value for option {}, got {}.".format(_key, s))
@@ -323,7 +366,7 @@ def _parse_extra_kwargs(extra_cl):
 
 def wrap_function(
         wrapped, verbose=False, cl_args=None, allow_abbrev=False,
-        collect_kwargs=False, parser=None, message=None):
+        collect_kwargs=False, strict=False, parser=None, message=None):
     return CommandLineFunction(**locals().copy())
 
 
@@ -332,7 +375,7 @@ wrap_function.__doc__ = CommandLineFunction.__doc__
 
 def wrap_object(
         obj, verbose=False, cl_args=None, allow_abbrev=False,
-        collect_kwargs=False, parser=None, message=None):
+        collect_kwargs=False, strict=False, parser=None, message=None):
     return CommandLineObject(**locals().copy())
 
 
