@@ -180,13 +180,15 @@ class CommandLineFunction(object):
         return self.call_after_parse(cl_arg_vals, *pargs, extra_cl=extra_cl, **kwargs)
 
     def call_after_parse(self, cl_arg_vals, *pargs, extra_cl=None, **kwargs):
-        extra_kwargs = _parse_extra_kwargs(extra_cl)
+        if self.strict or self.collect_kwargs:
+            extra_kwargs = _parse_extra_kwargs(extra_cl)
+        else:
+            extra_kwargs = {}
+
         if self.strict and extra_kwargs:
             raise ValueError(
                 "\"strict\" kwarg parsing is turned on, but received "
                 "unrecognized kwargs:\n{}".format(pformat(extra_kwargs)))
-        if not self.collect_kwargs:
-            extra_kwargs = {}
 
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
@@ -290,13 +292,15 @@ class CommandLineObject(object):
         cl_arg_vals, extra_cl = self.parser.parse_known_args(
             self.cl_args.split() if self.cl_args is not None else None)
 
-        extra_kwargs = _parse_extra_kwargs(extra_cl)
+        if self.strict or self.collect_kwargs:
+            extra_kwargs = _parse_extra_kwargs(extra_cl)
+        else:
+            extra_kwargs = {}
+
         if self.strict and extra_kwargs:
             raise ValueError(
                 "\"strict\" kwarg parsing is turned on, but received "
                 "unrecognized kwargs:\n{}".format(pformat(extra_kwargs)))
-        if not self.collect_kwargs:
-            extra_kwargs = {}
 
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
@@ -327,7 +331,8 @@ def _parse_extra_kwargs(extra_cl):
 
     Such arguments are passed to the wrapped function via **kwargs
     if ``collect_kwargs`` is True. Supported formats are ``--key=value``
-    and ``--key value``. Positional arguments are ignored.
+    and ``--key value``. Arguments of the form ``--key`` will be assigned
+    the empty string. Positional arguments are ignored.
 
     Parameters
     ----------
@@ -336,30 +341,29 @@ def _parse_extra_kwargs(extra_cl):
 
     """
     extra_kwargs = {}
-    _key = None
-    for s in extra_cl:
-        if _key is None:
-            if s.startswith('--'):
-                if '=' in s:
-                    # --key=value
-                    idx = s.index('=')
-                    _key = s[2:idx]
-                    _value = s[idx + 1:]
-                    extra_kwargs[_key] = _value
-                    _key = None
-                else:
-                    _key = s[2:]
-            else:
-                # positional
-                pass
-        else:
-            if s.startswith('--'):
-                raise RuntimeError("Expected value for option {}, got {}.".format(_key, s))
-            extra_kwargs[_key] = s
-            _key = None
+    extra_cl = list(extra_cl)
 
-    if _key is not None:
-        raise RuntimeError("Expected value for option {}, none provided.".format(_key))
+    while extra_cl:
+        s = extra_cl.pop()
+
+        if s.startswith('--'):
+            if '=' in s:
+                # --key=value
+                idx = s.index('=')
+                key = s[2:idx]
+                value = s[idx + 1:]
+                extra_kwargs[key] = value
+            else:
+                if extra_cl and not extra_cl[0].startswith('--'):
+                    # --key value
+                    extra_kwargs[s] = extra_cl.pop()
+                else:
+                    # --key
+                    extra_kwargs[s] = ""
+
+        else:
+            # positional
+            pass
 
     return extra_kwargs
 
