@@ -344,7 +344,7 @@ def _parse_extra_kwargs(extra_cl):
     extra_cl = list(extra_cl)
 
     while extra_cl:
-        s = extra_cl.pop()
+        s = extra_cl.pop(0)
 
         if s.startswith('--'):
             if '=' in s:
@@ -356,7 +356,7 @@ def _parse_extra_kwargs(extra_cl):
             else:
                 if extra_cl and not extra_cl[0].startswith('--'):
                     # --key value
-                    extra_kwargs[s] = extra_cl.pop()
+                    extra_kwargs[s] = extra_cl.pop(0)
                 else:
                     # --key
                     extra_kwargs[s] = ""
