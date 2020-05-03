@@ -25,14 +25,14 @@ NOT_PROVIDED = _NOT_PROVIDED()
 EMPTY = _EMPTY()
 
 
-class _bool(object):
+class _bool:
     def __new__(cls, val):
         if val in ("0", "False", "F", "false", "f"):
             return False
         return bool(val)
 
 
-class CommandLineFunction(object):
+class CommandLineFunction:
     """ Turn a function into a script that accepts arguments from the command line.
 
     Inspects the signature of the modified function to get default values. Arguments
@@ -101,11 +101,13 @@ class CommandLineFunction(object):
         Add arguments to an existing parser rather than creating a new one.
     message: str (optional)
         A message to print when the user requests help. Ignored if ``parser`` is supplied.
+    pos_n_ignore: int (optional)
+        A number of positional args to ignore at the beginning of the positional argument list.
 
     """
     def __init__(
             self, wrapped, verbose=False, cl_args=None, allow_abbrev=False,
-            collect_kwargs=False, strict=False, parser=None, message=None):
+            collect_kwargs=False, strict=False, parser=None, message=None, pos_n_ignore=None):
 
         self.wrapped = wrapped
         self.verbose = verbose
@@ -116,6 +118,7 @@ class CommandLineFunction(object):
         assert not (collect_kwargs and strict)
         self.parser = parser
         self.message = message
+        self.pos_n_ignore = pos_n_ignore
 
         build_parser_kwargs = locals().copy()
         del build_parser_kwargs['self']
@@ -167,6 +170,8 @@ class CommandLineFunction(object):
                 default=NOT_PROVIDED,
                 help=type(default).__name__)
 
+        parser.add_argument('_positional', nargs='*')
+
         return defaults, parser
 
     def __call__(self, *pargs, **kwargs):
@@ -192,7 +197,8 @@ class CommandLineFunction(object):
 
         cl_kwargs = {pn: value
                      for pn, value in cl_arg_vals.__dict__.items()
-                     if value is not NOT_PROVIDED}
+                     if value is not NOT_PROVIDED
+                     and not pn.startswith('_')}
 
         overlap = set(kwargs) & set(cl_kwargs) & set(extra_kwargs)
         if overlap:
@@ -201,14 +207,18 @@ class CommandLineFunction(object):
         kwargs.update(cl_kwargs)
         kwargs.update(extra_kwargs)
 
+        positional = pargs if pargs else cl_arg_vals._positional
+        if self.pos_n_ignore is not None:
+            positional = positional[self.pos_n_ignore:]
+
         if self.verbose:
             print("Calling wrapped function {} with\nargs:\n{}\nkwargs:\n{}".format(
-                self.wrapped.__name__, pformat(pargs), pformat(kwargs)))
+                self.wrapped.__name__, pformat(positional), pformat(kwargs)))
 
-        return self.wrapped(*pargs, **kwargs)
+        return self.wrapped(*positional, **kwargs)
 
 
-class DictWrapper(object):
+class DictWrapper:
     def __init__(self, dct):
         self.dct = dct
 
@@ -228,7 +238,7 @@ class DictWrapper(object):
             raise AttributeError(str(key))
 
 
-class CommandLineObject(object):
+class CommandLineObject:
     """ Create an argument parser from an object.
 
     Accepts arguments for each of the the object's non-hidden, non-method attributes.
